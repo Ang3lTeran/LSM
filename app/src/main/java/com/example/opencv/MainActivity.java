@@ -1,109 +1,124 @@
 package com.example.opencv;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.annotation.RequiresPermission;
+import android.os.Bundle;
+import android.os.Environment;
+import android.view.SurfaceView;
+import android.widget.Button;
+
 import androidx.appcompat.app.AppCompatActivity;
 
-import android.Manifest;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.os.Bundle;
-import android.provider.MediaStore;
-import android.util.Log;
-import android.view.View;
-import android.widget.Button;
-import android.widget.ImageView;
-
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.CameraBridgeViewBase.CvCameraViewListener2;
+import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
-import org.opencv.android.Utils;
 import org.opencv.core.Mat;
+import org.opencv.imgcodecs.Imgcodecs;
 
-import java.io.IOException;
-
-public class MainActivity extends AppCompatActivity {
-
-    Button select,camera;
-    ImageView imageView;
-    Bitmap bitmap;
-    Mat mat;
-    int SELECT_CODE = 100, CAMERA_CODE = 101;
+import java.io.File;
 
 
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
 
-        if(OpenCVLoader.initDebug()) Log.d("LOADED", "success");
-        else Log.d("LOADED", "ERROR");
 
-        getPermission();
+public class MainActivity extends AppCompatActivity implements CvCameraViewListener2 {
 
-        camera = findViewById(R.id.camera);
-        select = findViewById(R.id.select);
-        imageView = findViewById(R.id.imageView);
+         CameraBridgeViewBase mOpenCvCameraView;
+         Mat mRgba;
 
-        //Oyente del boton click
-        select.setOnClickListener(new View.OnClickListener() {
+        Button mCaptureButton;
+
+        @Override
+        public void onCreate(Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+            setContentView(R.layout.activity_main);
+
+            mOpenCvCameraView = findViewById(R.id.camera_surface_view);
+            mOpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
+            mOpenCvCameraView.setCvCameraViewListener(this);
+
+            mCaptureButton = findViewById(R.id.capture_button);
+            mCaptureButton.setOnClickListener(v -> captureImage());
+        }
+
+        @Override
+        public void onResume() {
+            super.onResume();
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, mLoaderCallback);
+        }
+
+        private final BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
             @Override
-            public void onClick(View view) {
-                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-                intent.setType("image/*");
-                startActivityForResult(intent, SELECT_CODE);
+            public void onManagerConnected(int status) {
+                if (status == LoaderCallbackInterface.SUCCESS) {
+                    mOpenCvCameraView.enableView();
+                } else {
+                    super.onManagerConnected(status);
+                }
             }
-        });
-        camera.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-                startActivityForResult(intent, CAMERA_CODE);
+        };
+
+        @Override
+        public void onPause() {
+            super.onPause();
+            if (mOpenCvCameraView != null)
+                mOpenCvCameraView.disableView();
+        }
+
+        @Override
+        public void onDestroy() {
+            super.onDestroy();
+            if (mOpenCvCameraView != null)
+                mOpenCvCameraView.disableView();
+        }
+
+        @Override
+        public void onCameraViewStarted(int width, int height) {
+            mRgba = new Mat();
+        }
+
+        @Override
+        public void onCameraViewStopped() {
+            mRgba.release();
+        }
+
+        @Override
+        public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
+            mRgba = inputFrame.rgba();
+            return mRgba;
+        }
+
+        private void captureImage() {
+            if (mRgba != null) {
+                String filename = "image_" + System.currentTimeMillis() + ".png";
+                Imgcodecs.imwrite(filename, mRgba);
+
+                // check if dataset has 20 images, if yes, save the images in a separate folder
+                if (checkDatasetCount()) {
+                    // save images in separate folder
+                    String folderName = "dataset_folder";
+                    File folder = new File(Environment.getExternalStorageDirectory() + "/my_folder");
+                    if (!folder.exists()) {
+
+                    }
+
+
+                    File imageFile = new File(filename);
+                    String destPath = folder.getAbsolutePath() + "/" + imageFile.getName();
+                    imageFile.renameTo(new File(destPath));
+                }
             }
-        });
-    }
+        }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if(requestCode ==SELECT_CODE && data!=null){
-            try {
-                bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), data.getData());
-                imageView.setImageBitmap(bitmap);
-
-                mat = new Mat();
-                Utils.bitmapToMat(bitmap, mat);
-
-            } catch (IOException e){
-                e.printStackTrace();
+        private boolean checkDatasetCount() {
+            String folderName = "dataset_folder";
+            File folder = new File(Environment.getExternalStorageDirectory() + "/" + folderName);
+            if (!folder.exists()) {
+                folder.mkdirs();
+                return true;
             }
 
-        }
-        if(resultCode ==CAMERA_CODE && data!=null){
-            bitmap = (Bitmap) data.getExtras().get("data");
-            imageView.setImageBitmap(bitmap);
-
-            mat = new Mat();
-            Utils.bitmapToMat(bitmap,mat);
-            
+            File[] files = folder.listFiles();
+            return files == null || files.length < 20;
         }
     }
-    void  getPermission(){
-        if(checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED){
-            requestPermissions(new String[]{Manifest.permission.CAMERA}, 102);
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        if(requestCode==2 && grantResults.length>0){
-            if(grantResults[0] == PackageManager.PERMISSION_GRANTED){
-                getPermission();
-            }
-
-        }
-    }
-}
